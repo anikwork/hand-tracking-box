@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AI Hand Tracking - Move & Resize Box with Two Fingers">
+    <title>Hand Tracking - Move & Resize Box</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: black;
+            color: white;
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        video {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            width: 200px;
+            border: 2px solid white;
+            border-radius: 10px;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+        }
+        #box {
+            position: absolute;
+            top: 40%;
+            left: 40%;
+            width: 150px;
+            height: 150px;
+            background-color: rgba(0, 255, 0, 0.5);
+            border: 3px solid lime;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>🖐️ Move & Resize Box with Two Fingers (Hand Tracking)</h2>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div id="box"></div>
+
+    <script>
+        let video = document.getElementById("video");
+        let canvas = document.getElementById("canvas");
+        let ctx = canvas.getContext("2d");
+        let box = document.getElementById("box");
+
+        let isDragging = false;
+        let lastDistance = 0;
+        let boxX = window.innerWidth / 2 - 75, boxY = window.innerHeight / 2 - 75, boxSize = 150;
+
+        // Load Camera
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            return new Promise(resolve => video.onloadedmetadata = resolve);
+        }
+
+        // Load Hand Model
+        async function loadHandModel() {
+            return await handpose.load();
+        }
+
+        // Calculate Distance Between Two Points
+        function getDistance(p1, p2) {
+            return Math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2);
+        }
+
+        // Draw Hand Outline
+        function drawHandOutline(hand) {
+            ctx.strokeStyle = "cyan";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let key in hand) {
+                hand[key].forEach((point, index) => {
+                    if (index === 0) ctx.moveTo(point[0], point[1]);
+                    else ctx.lineTo(point[0], point[1]);
+                });
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        // Main Function
+        async function run() {
+            await setupCamera();
+            let model = await loadHandModel();
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            async function detectHand() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const predictions = await model.estimateHands(video);
+
+                if (predictions.length > 0) {
+                    let hand = predictions[0].annotations;
+                    let thumbTip = hand.thumb[3];
+                    let indexTip = hand.indexFinger[3];
+
+                    // Draw Hand Tracking Border
+                    drawHandOutline(hand);
+
+                    // Draw Circles on Fingers
+                    ctx.fillStyle = "red";
+                    ctx.beginPath();
+                    ctx.arc(thumbTip[0], thumbTip[1], 10, 0, 2 * Math.PI);
+                    ctx.arc(indexTip[0], indexTip[1], 10, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    // Get Distance Between Thumb & Index Finger
+                    let distance = getDistance(thumbTip, indexTip);
+
+                    // Move Box if Fingers are Close
+                    if (distance < 50) {
+                        isDragging = true;
+                        boxX = indexTip[0] - boxSize / 2;
+                        boxY = indexTip[1] - boxSize / 2;
+                    } else {
+                        isDragging = false;
+                    }
+
+                    // Resize Box if Fingers Move Apart
+                    if (isDragging && Math.abs(distance - lastDistance) > 10) {
+                        boxSize += (distance - lastDistance);
+                        boxSize = Math.max(50, Math.min(300, boxSize)); // Limit size
+                    }
+                    lastDistance = distance;
+
+                    // Apply Box Position & Size
+                    box.style.left = `${boxX}px`;
+                    box.style.top = `${boxY}px`;
+                    box.style.width = `${boxSize}px`;
+                    box.style.height = `${boxSize}px`;
+                }
+
+                requestAnimationFrame(detectHand);
+            }
+
+            detectHand();
+        }
+
+        run();
+    </script>
+
+</body>
+</html>
